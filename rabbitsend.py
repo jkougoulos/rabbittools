@@ -17,14 +17,33 @@ maxwrite_buffer = None
 rcvexchange = None
 routekey = None
 rcvvhost = None
+ttl = None
+nottl = None
+qos = None
 
 def handle_tick():
     global chansend
     global conn
     global maxlines_toread
     global maxwrite_buffer
+    global qos
+    global ttl
 
     count = 0
+
+    props = None
+    if nottl:
+        props = pika.BasicProperties(
+                                      content_type='text/plain',                                                                                                                                  
+                                      delivery_mode=qos,
+        )
+    else:
+        props = pika.BasicProperties(
+                                      content_type='text/plain',                                                                                                                                  
+                                      delivery_mode=qos,
+                                      expiration=ttl
+        )
+ 
 
     # check if we have anything in stdin, we have read less than 512 line block, and the write output buffer has less than 1MB
     curr_buf = conn._get_write_buffer_size()
@@ -37,15 +56,14 @@ def handle_tick():
                 return 
 
             count += 1
+            if nottl:
+                props
             chansend.basic_publish(exchange=rcvexchange,
                             routing_key=routekey,
                             body=line,
-                            properties=pika.BasicProperties(
-                                            content_type='text/plain',
-                                            delivery_mode=1
-                            )
+                            properties=props
             )
-        delay = (maxlines_toread - count ) / maxlines_toread    # adjust delay for next read to percentage of lines read 
+        delay = (maxlines_toread - count ) / maxlines_toread    # adjust delay for next read to percentage of lines read - we don't want to select all the time 
     else:
         delay = 0.3               # tcp backpressure detected - waiting a bit
 
@@ -81,11 +99,12 @@ parser.add_argument('--password', default='guest', help="Username to use for con
 parser.add_argument('--vhost', default='/', help="Virtual host to use for connection to RabbitMQ (default is: %(default)s)" )
 parser.add_argument('--lineblock', default=512 , help="Maximum number of lines to read on each round (default is: %(default)s)", type=int )
 parser.add_argument('--maxnetwritebuff', default=1*1024*1024 , help="Maximum network buffer size to use while RabbitMQ applies backpressure (default is: %(default)s)", type=int )
+parser.add_argument('--ttl', default='8000', help="TTL of messages in milliseconds (default is: %(default)s)" )
+parser.add_argument('--nottl', help="Ignore TTL", action='store_true' )
+parser.add_argument('--qos', default=1, help="QoS of messages - 1: transient - 2: persisten (default is: %(default)s)", choices = [1,2], type=int )
 
 
 args = parser.parse_args()
-
-#pp.pprint(vars(args)) 
 
 host = args.host
 user = args.user
@@ -95,14 +114,9 @@ maxwrite_buffer = args.maxnetwritebuff
 rcvexchange = args.exchange
 rcvvhost = args.vhost
 routekey = args.routekey
-
-#print( "host is: " + host)
-#print( "user is: " + user)
-#print( "password is: " + password)
-#print( "maxlines is: " + str(maxlines_toread))
-#print( "maxbuffer is: " + str(maxwrite_buffer))
-#print( "exchange is: " + rcvexchange)
-#print( "routing_key is: " + routekey)
+ttl = args.ttl
+nottl = args.nottl
+qos = args.qos
 
 creds = pika.PlainCredentials(user, password )
 parameters = pika.ConnectionParameters(host=host, credentials=creds, virtual_host=rcvvhost)
